@@ -8,8 +8,9 @@ export PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED="${PGADMIN_CONFIG_MASTER_PASSWORD
 email="${PGADMIN_DEFAULT_EMAIL:-pgadmin@local}"
 storage_user=$(printf '%s' "$email" | sed 's/@/_/g')
 storage_dir="/var/lib/pgadmin/storage/${storage_user}"
+pass_abs="${storage_dir}/.pgpass"
 
-mkdir -p /var/lib/pgadmin "$storage_dir"
+mkdir -p /var/lib/pgadmin "$storage_dir" /tmp/pgpass
 if id pgadmin >/dev/null 2>&1; then
   chown -R pgadmin:root /var/lib/pgadmin || true
 fi
@@ -21,12 +22,28 @@ if [ -f /etc/secrets/servers.json ]; then
   export PGADMIN_REPLACE_SERVERS_ON_STARTUP="${PGADMIN_REPLACE_SERVERS_ON_STARTUP:-True}"
 fi
 
+src=""
 if [ -f /etc/secrets/pgpassfile ]; then
-  cp /etc/secrets/pgpassfile "${storage_dir}/pgpassfile"
-  chmod 600 "${storage_dir}/pgpassfile"
+  src=/etc/secrets/pgpassfile
+elif [ -n "${FIRMA_PG_PASSWORD:-}" ]; then
+  src=/tmp/pgpass-generated
+  printf '*:*:*:%s:%s\n' "${FIRMA_PG_USER:-agente}" "$FIRMA_PG_PASSWORD" > "$src"
+  chmod 600 "$src"
+fi
+
+if [ -n "$src" ]; then
+  cp "$src" "$pass_abs"
+  cp "$src" /tmp/pgpass/.pgpass
+  cp "$src" /var/lib/pgadmin/.pgpass
+  chmod 600 "$pass_abs" /tmp/pgpass/.pgpass /var/lib/pgadmin/.pgpass
   if id pgadmin >/dev/null 2>&1; then
-    chown pgadmin:root "${storage_dir}/pgpassfile" || true
+    chown pgadmin:root "$pass_abs" /tmp/pgpass/.pgpass /var/lib/pgadmin/.pgpass || true
   fi
+  export PGPASSFILE="$pass_abs"
+  export PGPASS_FILE=/tmp/pgpass/.pgpass
+  echo "pgpass installed for ${storage_user}"
+else
+  echo "WARNING: no pgpass source found"
 fi
 
 exec /entrypoint.sh
