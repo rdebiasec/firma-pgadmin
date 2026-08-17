@@ -1,0 +1,4 @@
+.env
+*.pem
+servers.json
+pgpassfile
